@@ -15,6 +15,30 @@
 </head>
 <body>
   <div id="game-container"></div>
+  <!-- 開機畫面:字體/雲端載入期間的墨點呼吸,遊戲起來後由 main.ts 移除 -->
+  <div id="boot-loader">
+    <div id="boot-ink"></div>
+    <div id="boot-text">墨 山 海</div>
+  </div>
+  <style>
+    #boot-loader {
+      position: fixed; inset: 0; background: #14110c;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      z-index: 10; pointer-events: none;
+    }
+    #boot-ink {
+      width: 26px; height: 26px; border-radius: 50%;
+      background: #b03a2e; animation: inkpulse 1.4s ease-in-out infinite;
+    }
+    #boot-text {
+      margin-top: 28px; color: #f3ead6; opacity: 0.65;
+      font-family: serif; font-size: 22px; letter-spacing: 8px;
+    }
+    @keyframes inkpulse {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.7); opacity: 1; }
+    }
+  </style>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

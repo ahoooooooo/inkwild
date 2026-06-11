@@ -5,6 +5,8 @@ export interface BeastDef {
     sub: string;
     texture: string;
     maxHp: number;
+    atk: number;
+    attackEveryMs: number;
     lootSilver: [number, number];
     lootMaterials: [number, number];
     exp: number;
@@ -20,6 +22,8 @@ export const BEASTS: BeastDef[] = [
         sub: '卷一 · 霧隱青丘 · 其一',
         texture: 'beast_foxling',
         maxHp: 900,
+        atk: 12,
+        attackEveryMs: 3600,
         lootSilver: [25, 40],
         lootMaterials: [1, 2],
         exp: 25,
@@ -33,6 +37,8 @@ export const BEASTS: BeastDef[] = [
         sub: '卷一 · 霧隱青丘 · 其二',
         texture: 'beast_foxling',
         maxHp: 2600,
+        atk: 22,
+        attackEveryMs: 3800,
         lootSilver: [60, 90],
         lootMaterials: [2, 4],
         exp: 70,
@@ -46,6 +52,8 @@ export const BEASTS: BeastDef[] = [
         sub: '卷一 · 霧隱青丘 · 主',
         texture: 'beast_ninetails',
         maxHp: 24000,
+        atk: 45,
+        attackEveryMs: 4200,
         lootSilver: [400, 600],
         lootMaterials: [10, 15],
         exp: 400,

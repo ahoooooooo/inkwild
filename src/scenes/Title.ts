@@ -72,24 +72,31 @@ export class Title extends Scene {
             .setInteractive({ useHandCursor: true });
         hit.on('pointerdown', () => this.enterMountain());
 
-        // 鍛兵入口(次要)
-        const forgeEntry = this.add.text(W / 2, enterY + 175, '鍛 兵', {
-            fontFamily: '"Noto Serif TC", serif', fontSize: 46, fontStyle: '700',
-            color: PAPER
-        }).setOrigin(0.5).setAlpha(0);
-        this.tweens.add({ targets: forgeEntry, alpha: 0.65, duration: 900, delay: 1100, ease: 'Sine.out' });
-        const forgeHit = this.add.rectangle(W / 2, enterY + 175, 360, 110, 0x000000, 0.001)
-            .setInteractive({ useHandCursor: true });
-        forgeHit.on('pointerdown', () => {
+        // 次要入口:工坊 / 坊市
+        const goScene = (key: string) => () => {
             if (this.entering) return;
             this.entering = true;
             const veil = this.add.rectangle(W / 2, H / 2, W, H, 0x14110c, 1)
                 .setDepth(100).setAlpha(0);
             this.tweens.add({
                 targets: veil, alpha: 1, duration: 420, ease: 'Sine.in',
-                onComplete: () => this.scene.start('Forge')
+                onComplete: () => this.scene.start(key)
             });
-        });
+        };
+        const subEntries: Array<[string, string, number]> = [
+            ['工 坊', 'Forge', W / 2 - 190],
+            ['坊 市', 'Market', W / 2 + 190]
+        ];
+        for (const [label, key, x] of subEntries) {
+            const t = this.add.text(x, enterY + 175, label, {
+                fontFamily: '"Noto Serif TC", serif', fontSize: 46, fontStyle: '700',
+                color: PAPER
+            }).setOrigin(0.5).setAlpha(0);
+            this.tweens.add({ targets: t, alpha: 0.65, duration: 900, delay: 1100, ease: 'Sine.out' });
+            const hit = this.add.rectangle(x, enterY + 175, 320, 110, 0x000000, 0.001)
+                .setInteractive({ useHandCursor: true });
+            hit.on('pointerdown', goScene(key));
+        }
 
         // 5. 版本
         this.add.text(W / 2, H - 36, '定調版 v0.1 — 墨山海 INKWILD', {
@@ -105,7 +112,7 @@ export class Title extends Scene {
             .setDepth(100).setAlpha(0);
         this.tweens.add({
             targets: veil, alpha: 1, duration: 420, ease: 'Sine.in',
-            onComplete: () => this.scene.start('Encounter')
+            onComplete: () => this.scene.start('Hunt')
         });
     }
 }

@@ -1,0 +1,80 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 存檔:只能本人讀寫 + 基本型別/範圍驗證(防改檔灌天文數字)
+    match /saves/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.silver is number
+        && request.resource.data.silver >= 0 && request.resource.data.silver <= 1000000000
+        && request.resource.data.materials is number
+        && request.resource.data.materials >= 0 && request.resource.data.materials <= 1000000000
+        && request.resource.data.exp is number
+        && request.resource.data.exp >= 0 && request.resource.data.exp <= 1000000000
+        && request.resource.data.hunterLevel is number
+        && request.resource.data.hunterLevel >= 1 && request.resource.data.hunterLevel <= 99999
+        && request.resource.data.weaponLevel is number
+        && request.resource.data.weaponLevel >= 0 && request.resource.data.weaponLevel <= 999999
+        && request.resource.data.armorLevel is number
+        && request.resource.data.armorLevel >= 0 && request.resource.data.armorLevel <= 999999
+        && request.resource.data.petLevel is number
+        && request.resource.data.petLevel >= 0 && request.resource.data.petLevel <= 999999
+        && request.resource.data.beastIndex is number
+        && request.resource.data.beastIndex >= 0 && request.resource.data.beastIndex <= 999;
+    }
+    // 坊市掛單:登入者可瀏覽;建單限本人+欄位驗證;
+    // 成交(open→sold)限買家本人;下架(open→cancelled)限賣家本人
+    match /listings/{listingId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.sellerUid == request.auth.uid
+        && request.resource.data.item == 'materials'
+        && request.resource.data.status == 'open'
+        && request.resource.data.amount is int
+        && request.resource.data.amount > 0 && request.resource.data.amount <= 10000
+        && request.resource.data.priceSilver is int
+        && request.resource.data.priceSilver > 0 && request.resource.data.priceSilver <= 1000000000;
+      allow update: if request.auth != null
+        && resource.data.status == 'open'
+        && request.resource.data.sellerUid == resource.data.sellerUid
+        && request.resource.data.amount == resource.data.amount
+        && request.resource.data.priceSilver == resource.data.priceSilver
+        && (
+          // 買家成交
+          (request.resource.data.status == 'sold'
+            && request.resource.data.buyerUid == request.auth.uid
+            && resource.data.sellerUid != request.auth.uid)
+          // 賣家下架
+          || (request.resource.data.status == 'cancelled'
+            && resource.data.sellerUid == request.auth.uid)
+        );
+      allow delete: if false;
+    }
+
+    // 待領款:買家成交時建(金額 = 同批次掛單價的 95%);賣家本人讀+領(刪)
+    match /payouts/{listingId} {
+      allow read: if request.auth != null && resource.data.sellerUid == request.auth.uid;
+      allow create: if request.auth != null
+        && getAfter(/databases/$(database)/documents/listings/$(listingId)).data.status == 'sold'
+        && getAfter(/databases/$(database)/documents/listings/$(listingId)).data.buyerUid == request.auth.uid
+        && request.resource.data.sellerUid == get(/databases/$(database)/documents/listings/$(listingId)).data.sellerUid
+        && request.resource.data.silver is int
+        && request.resource.data.silver == int(get(/databases/$(database)/documents/listings/$(listingId)).data.priceSilver * 0.95);
+      allow delete: if request.auth != null && resource.data.sellerUid == request.auth.uid;
+      allow update: if false;
+    }
+
+    // 掛單計數(防洗版):本人可讀寫,值域 0..5
+    match /listingCounters/{uid} {
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if request.auth != null && request.auth.uid == uid
+        && request.resource.data.open is int
+        && request.resource.data.open >= 0 && request.resource.data.open <= 5;
+    }
+
+    // 其他一律拒絕
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

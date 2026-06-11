@@ -1,4 +1,6 @@
-// 存檔(M1 localStorage;M3 換 Firestore 為唯一權威)
+import { CloudSave } from './CloudSave';
+
+// 存檔:localStorage 即時 + Firestore 雲端(M3,debounce 同步;updatedAt 新者勝)
 const KEY = 'inkwild_save_v1';
 
 export interface SaveData {
@@ -8,7 +10,10 @@ export interface SaveData {
     exp: number;
     hunterLevel: number;
     weaponLevel: number;  // 斷水 強化等級(無上限)
+    armorLevel: number;   // 玄武鱗 強化等級(防禦 + 氣血)
+    petLevel: number;     // 墨鶴 靈寵等級(攻擊加成)
     beastIndex: number;   // 已解鎖最遠異獸 index
+    updatedAt: number;    // epoch ms,雲端衝突解決用(新者勝)
 }
 
 export interface LootResult {
@@ -26,7 +31,10 @@ function defaults(): SaveData {
         exp: 0,
         hunterLevel: 1,
         weaponLevel: 0,
-        beastIndex: 0
+        armorLevel: 0,
+        petLevel: 0,
+        beastIndex: 0,
+        updatedAt: 0
     };
 }
 
@@ -75,11 +83,20 @@ export class SaveService {
             exp: int(d.exp, 0, RES_MAX, 0),
             hunterLevel: int(d.hunterLevel, 1, 99999, 1),
             weaponLevel: int(d.weaponLevel, 0, 999999, 0),
-            beastIndex: int(d.beastIndex, 0, 999, 0)
+            armorLevel: int(d.armorLevel, 0, 999999, 0),
+            petLevel: int(d.petLevel, 0, 999999, 0),
+            beastIndex: int(d.beastIndex, 0, 999, 0),
+            updatedAt: int(d.updatedAt, 0, 1e14, 0)
         };
     }
 
     private persist(): void {
+        this.data.updatedAt = Date.now();
+        this.persistLocal();
+        CloudSave.instance.queueSave({ ...this.data });
+    }
+
+    private persistLocal(): void {
         try {
             localStorage.setItem(KEY, JSON.stringify(this.data));
         } catch (err: unknown) {
@@ -87,13 +104,33 @@ export class SaveService {
         }
     }
 
+    // 雲端存檔較新 → 採用(只寫本地,不回寫雲端避免 echo)
+    adoptCloud(remote: SaveData): boolean {
+        const clean = this.sanitize({ ...defaults(), ...remote });
+        if (clean.updatedAt <= this.data.updatedAt) return false;
+        this.data = clean;
+        this.persistLocal();
+        return true;
+    }
+
     get(): Readonly<SaveData> {
         return this.data;
     }
 
-    // 傷害數值唯一來源:武器強化 + 獵妖師等級(M2 加裝備/寵物)
+    // 傷害數值唯一來源:武器強化 + 獵妖師等級 + 靈寵加成
     get atk(): number {
-        return 50 + this.data.weaponLevel * 15 + (this.data.hunterLevel - 1) * 4;
+        const base = 50 + this.data.weaponLevel * 15 + (this.data.hunterLevel - 1) * 4;
+        return Math.round(base * (1 + Math.min(this.data.petLevel, 10000) * 0.06));
+    }
+
+    // 防禦:玄武鱗(承傷減免,下限 1)
+    get def(): number {
+        return this.data.armorLevel * 3;
+    }
+
+    // 氣血:基礎 100 + 玄武鱗
+    get maxHp(): number {
+        return 100 + this.data.armorLevel * 8;
     }
 
     addLoot(silver: number, materials: number, exp: number): LootResult {
@@ -121,26 +158,54 @@ export class SaveService {
         }
     }
 
-    forgeCost(): { silver: number; materials: number } {
-        const l = this.data.weaponLevel;
-        // 指數在極端等級會溢位 Infinity(per Codex review)→ clamp 指數 + 成本上限。
-        // 銀兩防腐上限 1e9,成本 cap 1e12 必然付不起但保持 finite 可顯示。
-        const silver = Math.min(1e12, Math.round(40 * Math.pow(1.18, Math.min(l, 150))));
+    // 指數在極端等級會溢位 Infinity(per Codex review)→ clamp 指數 + 成本上限。
+    // 銀兩防腐上限 1e9,成本 cap 1e12 必然付不起但保持 finite 可顯示。
+    private growthCost(level: number, baseSilver: number, baseMat: number, matSlope: number): { silver: number; materials: number } {
         return {
-            silver,
-            materials: Math.min(1e9, 2 + Math.floor(l * 0.8))
+            silver: Math.min(1e12, Math.round(baseSilver * Math.pow(1.18, Math.min(level, 150)))),
+            materials: Math.min(1e9, baseMat + Math.floor(level * matSlope))
         };
     }
 
-    // 鍛打:扣材料 +1 級。回傳 false = 材料不足
-    tryForge(): boolean {
-        const cost = this.forgeCost();
+    forgeCost(): { silver: number; materials: number } {
+        return this.growthCost(this.data.weaponLevel, 40, 2, 0.8);
+    }
+
+    armorCost(): { silver: number; materials: number } {
+        return this.growthCost(this.data.armorLevel, 30, 2, 0.7);
+    }
+
+    petCost(): { silver: number; materials: number } {
+        return this.growthCost(this.data.petLevel, 60, 3, 1.0);
+    }
+
+    private trySpend(cost: { silver: number; materials: number }): boolean {
         if (this.data.silver < cost.silver || this.data.materials < cost.materials) {
             return false;
         }
         this.data.silver -= cost.silver;
         this.data.materials -= cost.materials;
+        return true;
+    }
+
+    // 鍛打:扣材料 +1 級。回傳 false = 材料不足
+    tryForge(): boolean {
+        if (!this.trySpend(this.forgeCost())) return false;
         this.data.weaponLevel += 1;
+        this.persist();
+        return true;
+    }
+
+    tryArmor(): boolean {
+        if (!this.trySpend(this.armorCost())) return false;
+        this.data.armorLevel += 1;
+        this.persist();
+        return true;
+    }
+
+    tryPet(): boolean {
+        if (!this.trySpend(this.petCost())) return false;
+        this.data.petLevel += 1;
         this.persist();
         return true;
     }

@@ -9,13 +9,18 @@ const VERMILION = 0xb03a2e;
 const VERMILION_CSS = '#b03a2e';
 const GOLD = 0xc9a227;
 
-// 鍛兵 — 武器「斷水」無上限強化,吃獸材+銀兩,ATK 真實變大
+interface ForgeRow {
+    nameY: number;
+    level: GameObjects.Text;
+    stat: GameObjects.Text;
+    cost: GameObjects.Text;
+}
+
+// 工坊三鍛:斷水(攻)/ 玄武鱗(防+血)/ 墨鶴(靈寵攻成)— 全部無上限吃獸材+銀兩
 export class Forge extends Scene {
     private silverText!: GameObjects.Text;
     private matText!: GameObjects.Text;
-    private levelText!: GameObjects.Text;
-    private atkText!: GameObjects.Text;
-    private costText!: GameObjects.Text;
+    private rows: ForgeRow[] = [];
     private forging = false;
 
     constructor() {
@@ -24,13 +29,15 @@ export class Forge extends Scene {
 
     create(): void {
         this.forging = false;
+        this.rows = [];
         const bg = this.add.image(W / 2, H / 2, 'forge_bg');
         bg.setScale(Math.max(W / bg.width, H / bg.height));
+        this.add.rectangle(W / 2, H / 2, W, H, 0x14110c, 0.3);
 
-        // 爐火金屑(緩升)
+        // 爐火金屑
         for (let i = 0; i < 10; i++) {
             const gx = 340 + Math.random() * 400;
-            const gy = 1150 + Math.random() * 350;
+            const gy = 1200 + Math.random() * 350;
             const spark = this.add.circle(gx, gy, 1.5 + Math.random() * 2.5, GOLD, 0.5);
             this.tweens.add({
                 targets: spark,
@@ -44,43 +51,22 @@ export class Forge extends Scene {
             });
         }
 
-        // 標題
-        this.add.text(W / 2, 170, '鍛  兵', {
+        // 標題 + 資源
+        this.add.text(W / 2, 160, '工  坊', {
             fontFamily: '"Noto Serif TC", serif', fontSize: 72, fontStyle: '900', color: PAPER
         }).setOrigin(0.5).setShadow(0, 3, '#14110c', 10, false, true);
-        this.add.rectangle(W / 2, 232, 180, 3, VERMILION, 0.9);
-
-        // 資源列
-        this.silverText = this.add.text(W / 2 - 160, 310, '', {
+        this.add.rectangle(W / 2, 222, 180, 3, VERMILION, 0.9);
+        this.silverText = this.add.text(W / 2 - 160, 290, '', {
             fontFamily: '"Noto Sans TC", sans-serif', fontSize: 30, color: PAPER
         }).setOrigin(0.5);
-        this.matText = this.add.text(W / 2 + 160, 310, '', {
+        this.matText = this.add.text(W / 2 + 160, 290, '', {
             fontFamily: '"Noto Sans TC", sans-serif', fontSize: 30, color: PAPER
         }).setOrigin(0.5);
 
-        // 武器銘 + 數值
-        this.add.text(W / 2, 560, '斷 水', {
-            fontFamily: '"Noto Serif TC", serif', fontSize: 110, fontStyle: '900', color: PAPER
-        }).setOrigin(0.5).setShadow(0, 4, '#14110c', 14, false, true);
-        this.levelText = this.add.text(W / 2, 668, '', {
-            fontFamily: '"Noto Serif TC", serif', fontSize: 44, fontStyle: '700', color: VERMILION_CSS
-        }).setOrigin(0.5);
-        this.atkText = this.add.text(W / 2, 760, '', {
-            fontFamily: '"Noto Sans TC", sans-serif', fontSize: 36, color: PAPER
-        }).setOrigin(0.5);
-        this.costText = this.add.text(W / 2, 1180, '', {
-            fontFamily: '"Noto Sans TC", sans-serif', fontSize: 32, color: PAPER
-        }).setOrigin(0.5).setAlpha(0.85);
-
-        // 鍛打印
-        const sealY = 1430;
-        this.add.circle(W / 2, sealY, 96, VERMILION, 0.92);
-        this.add.text(W / 2, sealY, '鍛', {
-            fontFamily: '"Noto Serif TC", serif', fontSize: 96, fontStyle: '900', color: PAPER
-        }).setOrigin(0.5);
-        const hit = this.add.circle(W / 2, sealY, 140, 0x000000, 0.001)
-            .setInteractive({ useHandCursor: true });
-        hit.on('pointerdown', () => this.forge());
+        // 三鍛列
+        this.buildRow(470, '斷 水', () => SaveService.instance.tryForge());
+        this.buildRow(890, '玄武鱗', () => SaveService.instance.tryArmor());
+        this.buildRow(1310, '墨 鶴', () => SaveService.instance.tryPet());
 
         // 導覽
         const back = this.add.text(90, 110, '〈 卷首', {
@@ -95,61 +81,99 @@ export class Forge extends Scene {
         this.refresh();
     }
 
+    private buildRow(y: number, name: string, tryUpgrade: () => boolean): void {
+        // 列底:極簡墨匾(細線框)
+        this.add.rectangle(W / 2 - 90, y + 60, 720, 320, 0x14110c, 0.55)
+            .setStrokeStyle(2, 0xf3ead6, 0.18);
+        this.add.text(180, y, name, {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 64, fontStyle: '900', color: PAPER
+        }).setOrigin(0, 0.5).setShadow(0, 3, '#14110c', 10, false, true);
+        const level = this.add.text(620, y, '', {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 40, fontStyle: '700', color: VERMILION_CSS
+        }).setOrigin(0, 0.5);
+        const stat = this.add.text(180, y + 70, '', {
+            fontFamily: '"Noto Sans TC", sans-serif', fontSize: 30, color: PAPER
+        }).setOrigin(0, 0.5).setAlpha(0.9);
+        const cost = this.add.text(180, y + 128, '', {
+            fontFamily: '"Noto Sans TC", sans-serif', fontSize: 27, color: PAPER
+        }).setOrigin(0, 0.5).setAlpha(0.65);
+
+        // 鍛印
+        const sealX = W - 190;
+        this.add.circle(sealX, y + 64, 72, VERMILION, 0.92);
+        this.add.text(sealX, y + 64, '鍛', {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 70, fontStyle: '900', color: PAPER
+        }).setOrigin(0.5);
+        const hit = this.add.circle(sealX, y + 64, 104, 0x000000, 0.001)
+            .setInteractive({ useHandCursor: true });
+        hit.on('pointerdown', () => this.upgrade(sealX, y + 64, tryUpgrade));
+
+        this.rows.push({ nameY: y, level, stat, cost });
+    }
+
     private refresh(): void {
         const save = SaveService.instance;
         const d = save.get();
-        const cost = save.forgeCost();
         this.silverText.setText(`銀兩 ${d.silver}`);
         this.matText.setText(`獸材 ${d.materials}`);
-        this.levelText.setText(`強化 +${d.weaponLevel}`);
-        this.atkText.setText(`攻 ${save.atk}  →  ${save.atk + 15}`);
-        this.costText.setText(`鍛打需:獸材 ${cost.materials} · 銀兩 ${cost.silver}`);
+
+        const fc = save.forgeCost();
+        this.rows[0].level.setText(`+${d.weaponLevel}`);
+        this.rows[0].stat.setText(`攻 ${save.atk}  →  強化後更高`);
+        this.rows[0].cost.setText(`獸材 ${fc.materials} · 銀兩 ${fc.silver}`);
+
+        const ac = save.armorCost();
+        this.rows[1].level.setText(`+${d.armorLevel}`);
+        this.rows[1].stat.setText(`防 ${save.def} · 氣血 ${save.maxHp}`);
+        this.rows[1].cost.setText(`獸材 ${ac.materials} · 銀兩 ${ac.silver}`);
+
+        const pc = save.petCost();
+        this.rows[2].level.setText(`+${d.petLevel}`);
+        this.rows[2].stat.setText(`靈攻加成 +${d.petLevel * 6}%`);
+        this.rows[2].cost.setText(`獸材 ${pc.materials} · 銀兩 ${pc.silver}`);
     }
 
-    private forge(): void {
+    private upgrade(sx: number, sy: number, tryUpgrade: () => boolean): void {
         if (this.forging) return;
-        const ok = SaveService.instance.tryForge();
-        if (!ok) {
-            // 材料不足:墨字提示
-            const toast = this.add.text(W / 2, 1010, '材料不足', {
-                fontFamily: '"Noto Serif TC", serif', fontSize: 48, fontStyle: '700',
+        if (!tryUpgrade()) {
+            const toast = this.add.text(sx - 200, sy, '材料不足', {
+                fontFamily: '"Noto Serif TC", serif', fontSize: 40, fontStyle: '700',
                 color: PAPER, stroke: INK, strokeThickness: 5
-            }).setOrigin(0.5).setAlpha(0.9);
+            }).setOrigin(0.5).setAlpha(0.9).setDepth(50);
             this.tweens.add({
-                targets: toast, alpha: 0, y: 970, duration: 900,
+                targets: toast, alpha: 0, y: sy - 40, duration: 900,
                 onComplete: () => toast.destroy()
             });
             this.cameras.main.shake(60, 0.003);
             return;
         }
         this.forging = true;
-        // 成功:金火迸發 + 攻擊力躍升墨字
         this.cameras.main.shake(90, 0.005);
-        for (let i = 0; i < 14; i++) {
+        for (let i = 0; i < 12; i++) {
             const ang = Math.random() * Math.PI * 2;
-            const dist = 70 + Math.random() * 180;
-            const spark = this.add.circle(W / 2, 1430, 2 + Math.random() * 3,
+            const dist = 60 + Math.random() * 150;
+            const spark = this.add.circle(sx, sy, 2 + Math.random() * 3,
                 Math.random() < 0.5 ? GOLD : 0xd96a3a, 0.95).setDepth(50);
             this.tweens.add({
                 targets: spark,
-                x: W / 2 + Math.cos(ang) * dist,
-                y: 1430 + Math.sin(ang) * dist - 60,
-                alpha: 0, duration: 480 + Math.random() * 280,
+                x: sx + Math.cos(ang) * dist,
+                y: sy + Math.sin(ang) * dist - 50,
+                alpha: 0, duration: 450 + Math.random() * 250,
                 ease: 'Sine.out', onComplete: () => spark.destroy()
             });
         }
-        const pop = this.add.text(W / 2, 880, '攻 +15', {
-            fontFamily: '"Noto Serif TC", serif', fontSize: 84, fontStyle: '900',
-            color: VERMILION_CSS, stroke: INK, strokeThickness: 7
-        }).setOrigin(0.5).setDepth(50).setScale(1.6).setAlpha(0);
+        const pop = this.add.text(sx - 200, sy - 20, '+1', {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 64, fontStyle: '900',
+            color: VERMILION_CSS, stroke: INK, strokeThickness: 6
+        }).setOrigin(0.5).setDepth(50).setScale(1.5).setAlpha(0);
         this.tweens.add({
-            targets: pop, scale: 1, alpha: 1, duration: 240, ease: 'Back.out',
+            targets: pop, scale: 1, alpha: 1, duration: 220, ease: 'Back.out',
             onComplete: () => this.tweens.add({
-                targets: pop, alpha: 0, y: 830, duration: 600, delay: 350,
+                targets: pop, alpha: 0, y: sy - 70, duration: 550, delay: 300,
                 onComplete: () => pop.destroy()
             })
         });
         this.refresh();
-        this.time.delayedCall(320, () => { this.forging = false; });
+        this.time.delayedCall(300, () => { this.forging = false; });
     }
 }
