@@ -13,6 +13,8 @@ export class Boot extends Scene {
         this.load.image('beast_ninetails', 'beast_ninetails.png');
         this.load.image('hunter', 'hunter.png');
         this.load.image('slash', 'slash.png');
+        this.load.image('beast_foxling', 'beast_foxling.png');
+        this.load.image('forge_bg', 'forge_bg.png');
     }
 
     create(): void {

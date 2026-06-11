@@ -68,9 +68,28 @@ export class Title extends Scene {
         });
 
         // 點擊範圍(透明大熱區,手機好按)
-        const hit = this.add.rectangle(W / 2, enterY + 20, 560, 240, 0x000000, 0.001)
+        const hit = this.add.rectangle(W / 2, enterY + 10, 560, 170, 0x000000, 0.001)
             .setInteractive({ useHandCursor: true });
         hit.on('pointerdown', () => this.enterMountain());
+
+        // 鍛兵入口(次要)
+        const forgeEntry = this.add.text(W / 2, enterY + 175, '鍛 兵', {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 46, fontStyle: '700',
+            color: PAPER
+        }).setOrigin(0.5).setAlpha(0);
+        this.tweens.add({ targets: forgeEntry, alpha: 0.65, duration: 900, delay: 1100, ease: 'Sine.out' });
+        const forgeHit = this.add.rectangle(W / 2, enterY + 175, 360, 110, 0x000000, 0.001)
+            .setInteractive({ useHandCursor: true });
+        forgeHit.on('pointerdown', () => {
+            if (this.entering) return;
+            this.entering = true;
+            const veil = this.add.rectangle(W / 2, H / 2, W, H, 0x14110c, 1)
+                .setDepth(100).setAlpha(0);
+            this.tweens.add({
+                targets: veil, alpha: 1, duration: 420, ease: 'Sine.in',
+                onComplete: () => this.scene.start('Forge')
+            });
+        });
 
         // 5. 版本
         this.add.text(W / 2, H - 36, '定調版 v0.1 — 墨山海 INKWILD', {

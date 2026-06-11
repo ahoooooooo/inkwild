@@ -3,6 +3,7 @@ import { AUTO, Game, Scale } from 'phaser';
 import { Boot } from './scenes/Boot';
 import { Title } from './scenes/Title';
 import { Encounter } from './scenes/Encounter';
+import { Forge } from './scenes/Forge';
 
 // 字體先載完才起 Phaser,避免標題字 fallback 閃爍
 async function start(): Promise<void> {
@@ -24,7 +25,7 @@ async function start(): Promise<void> {
         height: 1920,
         backgroundColor: '#14110c',
         scale: { mode: Scale.FIT, autoCenter: Scale.CENTER_BOTH },
-        scene: [Boot, Title, Encounter]
+        scene: [Boot, Title, Encounter, Forge]
     });
 }
 
