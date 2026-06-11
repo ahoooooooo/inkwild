@@ -1,4 +1,5 @@
 import { Scene } from 'phaser';
+import { SFX_KEYS } from '../services/Sfx';
 
 export class Boot extends Scene {
     constructor() {
@@ -16,6 +17,7 @@ export class Boot extends Scene {
         this.load.image('beast_foxling', 'beast_foxling.png');
         this.load.image('forge_bg', 'forge_bg.png');
         this.load.image('pet_crane', 'pet_crane.png');
+        for (const k of SFX_KEYS) this.load.audio(k, `sfx/${k}.ogg`);
     }
 
     create(): void {

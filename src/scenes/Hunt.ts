@@ -1,6 +1,7 @@
 import { Scene, TintModes, type GameObjects, type Input } from 'phaser';
 import { SaveService } from '../services/SaveService';
 import { BEASTS, type BeastDef } from '../data/beasts';
+import { playSfx } from '../services/Sfx';
 
 const W = 1080;
 const H = 1920;
@@ -23,6 +24,7 @@ interface FieldBeast {
     hp: number;
     alive: boolean;
     aggro: boolean;
+    aggroLock: boolean;
     nextAttackAt: number;
     attacking: boolean;
     facing: number;
@@ -61,6 +63,13 @@ export class Hunt extends Scene {
     private striking = false;
     private defeated = false;
     private leaving = false;
+    private vy = 0;
+    private airJumps = 0;
+    private hitStopActive = false;
+    private comboCount = 0;
+    private comboExpireAt = 0;
+    private comboText: GameObjects.Text | null = null;
+    private lootOrbs: Array<{ obj: GameObjects.Arc; vx: number; vy: number; bornAt: number }> = [];
 
     constructor() {
         super('Hunt');
@@ -77,6 +86,13 @@ export class Hunt extends Scene {
         this.dodgeReadyAt = 0;
         this.invulnUntil = 0;
         this.nextStrikeAt = 0;
+        this.vy = 0;
+        this.airJumps = 0;
+        this.hitStopActive = false;
+        this.comboCount = 0;
+        this.comboExpireAt = 0;
+        this.comboText = null;
+        this.lootOrbs = [];
         this.beasts = [];
 
         this.cameras.main.setBounds(0, 0, WORLD_W, H);
@@ -175,6 +191,20 @@ export class Hunt extends Scene {
             this.castSkill(true);
         });
 
+        // 6.5 跳躍印「躍」（左下，二段跳）
+        const jumpSeal = this.add.circle(130, sealY, 78, 0x1c1814, 0.85)
+            .setScrollFactor(0).setDepth(85);
+        jumpSeal.setStrokeStyle(3, 0xf3ead6, 0.5);
+        this.add.text(130, sealY, '躍', {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 74, fontStyle: '900', color: PAPER
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(86);
+        const jumpHit = this.add.circle(130, sealY, 105, 0x000000, 0.001)
+            .setScrollFactor(0).setDepth(87).setInteractive({ useHandCursor: true });
+        jumpHit.on('pointerdown', (_p: Input.Pointer, _x: number, _y: number, e: { stopPropagation: () => void }) => {
+            e.stopPropagation();
+            this.jump();
+        });
+
         // 7. 移動:按住畫面 → 朝指標 world x 輕功滑行
         this.input.on('pointerdown', (p: Input.Pointer) => {
             this.moveTargetX = p.worldX;
@@ -189,6 +219,75 @@ export class Hunt extends Scene {
             fontFamily: '"Noto Sans TC", sans-serif', fontSize: 30, color: PAPER
         }).setOrigin(0.5).setAlpha(0.75).setScrollFactor(0).setDepth(80);
         this.tweens.add({ targets: hint, alpha: 0, duration: 1200, delay: 3500, onComplete: () => hint.destroy() });
+    }
+
+    // 輕功二段跳
+    private jump(): void {
+        if (this.defeated) return;
+        const onGround = this.hunter.y >= GROUND_Y - 1;
+        if (!onGround && this.airJumps >= 1) return;
+        if (!onGround) this.airJumps += 1;
+        this.vy = -1250;
+        playSfx(this, 'jump', 0.5);
+        const puff = this.add.ellipse(this.hunter.x, GROUND_Y + 170, 56, 12, 0x1c1814, 0.35).setDepth(14);
+        this.tweens.add({
+            targets: puff, alpha: 0, scaleX: 1.8, duration: 350,
+            onComplete: () => puff.destroy()
+        });
+    }
+
+    // HitStop：time + tweens 同步，setTimeout 還原（不受 timescale 影響）
+    private hitStop(ms: number, scale = 0.05): void {
+        if (this.hitStopActive) return;
+        this.hitStopActive = true;
+        const prevTime = this.time.timeScale;
+        const prevTween = this.tweens.timeScale;
+        this.time.timeScale = scale;
+        this.tweens.timeScale = scale;
+        setTimeout(() => {
+            this.time.timeScale = prevTime;
+            this.tweens.timeScale = prevTween;
+            this.hitStopActive = false;
+        }, ms);
+    }
+
+    // 連斬計數：4 秒內連殺累積
+    private addCombo(): void {
+        const now = this.time.now;
+        this.comboCount = now <= this.comboExpireAt ? this.comboCount + 1 : 1;
+        this.comboExpireAt = now + 4000;
+        if (this.comboCount < 2) return;
+        if (this.comboText) this.comboText.destroy();
+        const label = '連斬 ×' + this.comboCount;
+        this.comboText = this.add.text(W / 2, 320, label, {
+            fontFamily: '"Noto Serif TC", serif', fontSize: 60, fontStyle: '900',
+            color: VERMILION_CSS, stroke: INK, strokeThickness: 7
+        }).setOrigin(0.5).setScrollFactor(0).setDepth(88).setScale(1.6).setAlpha(0);
+        const ct = this.comboText;
+        this.tweens.add({
+            targets: ct, scale: 1, alpha: 1, duration: 160, ease: 'Back.out',
+            onComplete: () => this.tweens.add({ targets: ct, alpha: 0, duration: 700, delay: 1300 })
+        });
+    }
+
+    // 實體掉寶：鯖出 → 磁吸入袋
+    private spawnLootOrbs(x: number, y: number, silver: number, mats: number): void {
+        const counts: Array<[number, number]> = [
+            [Math.min(4, Math.max(1, Math.round(silver / 12))), 0xc9a227],
+            [Math.min(3, Math.max(1, mats)), 0x2a241d]
+        ];
+        for (const [n, color] of counts) {
+            for (let i = 0; i < n; i++) {
+                const orb = this.add.circle(x, y - 60, color === 0xc9a227 ? 9 : 11, color, 0.95).setDepth(35);
+                orb.setStrokeStyle(2, color === 0xc9a227 ? 0xf3ead6 : 0xb03a2e, 0.9);
+                this.lootOrbs.push({
+                    obj: orb,
+                    vx: (Math.random() - 0.5) * 420,
+                    vy: -500 - Math.random() * 280,
+                    bornAt: this.time.now
+                });
+            }
+        }
     }
 
     private refreshHud(): void {
@@ -209,7 +308,7 @@ export class Hunt extends Scene {
             .setOrigin(0, 0.5).setDepth(16);
         const b: FieldBeast = {
             def, spawnX: x, img, hpBg, hpFill,
-            hp: def.maxHp, alive: true, aggro: false,
+            hp: def.maxHp, alive: true, aggro: false, aggroLock: false,
             nextAttackAt: 0, attacking: false, facing: -1,
             wanderDir: Math.random() < 0.5 ? -1 : 1, nextWanderAt: 0
         };
@@ -230,6 +329,43 @@ export class Hunt extends Scene {
         this.dodgeSeal.setAlpha(dodgeReady ? 0.85 : 0.25);
         this.dodgeText.setAlpha(dodgeReady ? 1 : 0.4);
 
+        // 跳躍物理（手動重力）
+        if (this.hunter.y < GROUND_Y || this.vy < 0) {
+            this.vy += 3200 * dt;
+            this.hunter.y = Math.min(GROUND_Y, this.hunter.y + this.vy * dt);
+            if (this.hunter.y >= GROUND_Y && this.vy > 0) {
+                this.vy = 0;
+                this.airJumps = 0;
+                const dust = this.add.ellipse(this.hunter.x, GROUND_Y + 170, 70, 14, 0x1c1814, 0.4).setDepth(14);
+                this.tweens.add({ targets: dust, alpha: 0, scaleX: 2, duration: 380, onComplete: () => dust.destroy() });
+            }
+        }
+
+        // 掉寶珠：拋物線 → 250ms 後磁吸 → 入袋
+        for (const o of this.lootOrbs) {
+            if (!o.obj.active) continue;
+            if (time - o.bornAt > 250) {
+                const dx = this.hunter.x - o.obj.x;
+                const dy = (this.hunter.y - 60) - o.obj.y;
+                const d = Math.hypot(dx, dy) || 1;
+                if (d < 70) {
+                    o.obj.destroy();
+                    playSfx(this, 'pickup', 0.35);
+                    continue;
+                }
+                o.obj.x += (dx / d) * 1500 * dt;
+                o.obj.y += (dy / d) * 1500 * dt;
+            } else {
+                o.vy += 2600 * dt;
+                o.obj.x += o.vx * dt;
+                o.obj.y = Math.min(GROUND_Y + 150, o.obj.y + o.vy * dt);
+            }
+        }
+        this.lootOrbs = this.lootOrbs.filter((o) => o.obj.active);
+
+        // 連斬過期
+        if (this.comboCount > 0 && time > this.comboExpireAt) this.comboCount = 0;
+
         // 移動(輕功滑行:傾身 + 墨痕,不做步行幀)
         if (this.moveTargetX !== null && !this.striking) {
             const dx = this.moveTargetX - this.hunter.x;
@@ -241,7 +377,7 @@ export class Hunt extends Scene {
                 if (time >= this.nextTrailAt) {
                     this.nextTrailAt = time + 70;
                     const trail = this.add.ellipse(
-                        this.hunter.x - dir * 60, GROUND_Y + 175,
+                        this.hunter.x - dir * 60, Math.min(GROUND_Y + 175, this.hunter.y + 175),
                         46, 10, 0x1c1814, 0.32
                     ).setDepth(14);
                     this.tweens.add({
@@ -257,12 +393,13 @@ export class Hunt extends Scene {
         }
         if (this.crane) {
             this.crane.x += ((this.hunter.x - 130) - this.crane.x) * Math.min(1, dt * 3);
-            this.crane.y = GROUND_Y - 240 + Math.sin(time / 700) * 14;
+            this.crane.y = this.hunter.y - 240 + Math.sin(time / 700) * 14;
         }
 
         // 九尾結界:走到門邊 → boss 房
         if (this.hunter.x > WORLD_W - 260) {
             this.leaving = true;
+            playSfx(this, 'gate', 0.6);
             this.scene.start('Encounter', { beastIdx: 2 });
             return;
         }
@@ -280,7 +417,11 @@ export class Hunt extends Scene {
         for (const b of this.beasts) {
             if (!b.alive) continue;
             const dist = Math.abs(b.img.x - this.hunter.x);
-            b.aggro = dist < 420;
+            if (!b.aggroLock && dist < 420) {
+                b.aggroLock = true;
+                playSfx(this, 'beast_aggro', 0.3);
+            }
+            b.aggro = b.aggroLock;
             if (b.attacking) continue;
             if (b.aggro && dist > 150) {
                 const dir = Math.sign(this.hunter.x - b.img.x);
@@ -342,6 +483,7 @@ export class Hunt extends Scene {
             targets: this.hunter, x: fromX + dir * (isSkill ? 150 : 100),
             duration: 120, ease: 'Sine.out', yoyo: true
         });
+        playSfx(this, Math.random() < 0.5 ? 'slash_0' : 'slash_1', 0.45);
         const { dmg, crit } = this.rollDamage(mult);
         this.time.delayedCall(120, () => this.hitBeast(target, dmg, crit, isSkill ? 1.5 : 1));
         this.time.delayedCall(290, () => {
@@ -397,7 +539,14 @@ export class Hunt extends Scene {
             else b.img.clearTint();
             b.img.setTintMode(TintModes.MULTIPLY);
         });
+        playSfx(this, crit ? 'crit' : (Math.random() < 0.5 ? 'hit_0' : 'hit_1'), crit ? 0.65 : 0.5);
+        this.hitStop(crit ? 90 : 50);
         if (crit) this.cameras.main.shake(60, 0.003);
+        const kdir = Math.sign(b.img.x - this.hunter.x) || 1;
+        b.img.x += kdir * (crit ? 64 : 40);
+        for (const other of this.beasts) {
+            if (other.alive && Math.abs(other.img.x - b.img.x) < 600) other.aggroLock = true;
+        }
 
         const popup = this.add.text(b.img.x + (Math.random() - 0.5) * 80, b.img.y - 200, `${dmg}`, {
             fontFamily: '"Noto Serif TC", serif',
@@ -425,7 +574,26 @@ export class Hunt extends Scene {
         const mats = m0 + Math.floor(Math.random() * (m1 - m0 + 1));
         const result = save.addLoot(silver, mats, b.def.exp);
 
-        this.tweens.add({ targets: b.img, alpha: 0, y: b.img.y - 30, duration: 600 });
+        playSfx(this, 'beast_die', 0.55);
+        playSfx(this, 'coin', 0.4);
+        this.hitStop(110, 0.05);
+        this.addCombo();
+        this.tweens.add({ targets: b.img, alpha: 0, y: b.img.y - 30, duration: 500 });
+        for (let i = 0; i < 4; i++) {
+            const blob = this.add.circle(
+                b.img.x + (Math.random() - 0.5) * 60,
+                b.img.y - 40 + (Math.random() - 0.5) * 60,
+                7 + Math.random() * 9, 0x1c1814, 0.6
+            ).setDepth(34);
+            this.tweens.add({
+                targets: blob,
+                x: blob.x + (Math.random() - 0.5) * 260,
+                y: blob.y + (Math.random() - 0.5) * 200,
+                alpha: 0, scale: 1.8, duration: 520 + Math.random() * 240,
+                ease: 'Sine.out', onComplete: () => blob.destroy()
+            });
+        }
+        this.spawnLootOrbs(b.img.x, b.img.y, silver, mats);
         b.hpBg.setVisible(false);
         b.hpFill.setVisible(false);
 
@@ -438,6 +606,7 @@ export class Hunt extends Scene {
             onComplete: () => loot.destroy()
         });
         if (result.leveledTo) {
+            playSfx(this, 'levelup', 0.6);
             const lvl = this.add.text(this.hunter.x, GROUND_Y - 320, `晉 Lv${result.leveledTo}`, {
                 fontFamily: '"Noto Serif TC", serif', fontSize: 56, fontStyle: '900',
                 color: VERMILION_CSS, stroke: INK, strokeThickness: 6
@@ -498,7 +667,8 @@ export class Hunt extends Scene {
 
     private resolvePounce(b: FieldBeast): void {
         if (!b.alive || this.defeated) return;
-        if (Math.abs(b.img.x - this.hunter.x) > 260) return; // 走位躲開
+        if (Math.abs(b.img.x - this.hunter.x) > 260) return;
+        if (this.hunter.y < GROUND_Y - 160) return; // 跳起躲開 // 走位躲開
         const save = SaveService.instance;
         if (this.time.now < this.invulnUntil) {
             const t = this.add.text(this.hunter.x, GROUND_Y - 260, '避', {
@@ -514,6 +684,9 @@ export class Hunt extends Scene {
         const raw = b.def.atk * (0.9 + Math.random() * 0.2);
         const dmg = Math.max(1, Math.round(raw - save.def));
         this.hunterHp = Math.max(0, this.hunterHp - dmg);
+        playSfx(this, 'hurt', 0.55);
+        const kdir = Math.sign(this.hunter.x - b.img.x) || 1;
+        this.hunter.x = Math.min(WORLD_W - 80, Math.max(80, this.hunter.x + kdir * 60));
         this.hunter.setTint(0xb03a2e);
         this.hunter.setTintMode(TintModes.FILL);
         this.time.delayedCall(80, () => {
