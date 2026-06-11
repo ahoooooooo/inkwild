@@ -11,6 +11,8 @@ export class Boot extends Scene {
         this.load.image('title_bg', 'title_bg.png');
         this.load.image('logo', 'logo.png');
         this.load.image('beast_ninetails', 'beast_ninetails.png');
+        this.load.image('hunter', 'hunter.png');
+        this.load.image('slash', 'slash.png');
     }
 
     create(): void {
