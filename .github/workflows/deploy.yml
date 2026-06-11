@@ -27,8 +27,10 @@ jobs:
           node-version: 22
           cache: npm
 
+      # npm ci 會踩 npm 跨平台 lockfile bug(Windows 產生的 lock 缺 Linux-only
+      # optional deps @emnapi/*),改用 npm install
       - name: Install
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Type check
         run: npx tsc --noEmit
